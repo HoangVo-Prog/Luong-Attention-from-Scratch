@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from config import *
-from attention import BahdanauAttention
+from attention import *
 from Data.data import cache_or_process
 
 
@@ -17,45 +17,52 @@ class Encoder(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim, num_layers, dropout, bidirectional):
         super(Encoder, self).__init__()
         self.embedding = nn.Embedding(input_dim, hidden_dim)
-        self.lstm = nn.LSTM(hidden_dim, hidden_dim, num_layers=num_layers, dropout=dropout, bidirectional=bidirectional, batch_first=True)
+        self.lstm = nn.LSTM(hidden_dim, hidden_dim, num_layers=num_layers, bidirectional=bidirectional, batch_first=True)
         self.fc = nn.Linear(hidden_dim * 2 if bidirectional else hidden_dim, hidden_dim)
         self.fc_hidden = nn.Linear(hidden_dim * 2 if bidirectional else hidden_dim, hidden_dim)
-        self.batch_norm = nn.BatchNorm1d(hidden_dim * 2 if bidirectional else hidden_dim)
+        self.layer_norm = nn.LayerNorm(hidden_dim * 2 if bidirectional else hidden_dim)
         self.dropout = nn.Dropout(dropout)
         
     def forward(self, x):
        
-        x = x.to(DEVICE)
+        # x = x.to(DEVICE)
         embedded = self.dropout(self.embedding(x))
         outputs, (hidden, _) = self.lstm(embedded)
         
-        outputs = self.batch_norm(outputs.permute(0, 2, 1))  
-        outputs = outputs.permute(0, 2, 1) 
+        outputs = self.layer_norm(outputs)  
         
         if self.lstm.bidirectional:
             hidden = torch.cat((hidden[-2,:,:], hidden[-1,:,:]), dim=1)
 
         outputs = self.fc(outputs)
         hidden = self.fc_hidden(hidden)
+        outputs = self.dropout(outputs)
         
-        return outputs, hidden # (BATCH_SIZE, MAX_LENGTH, HIDDEN_DIM), (4, BATCH_SIZE, HIDDEN_DIM)
+        return outputs, hidden # (BATCH_SIZE, MAX_LENGTH, HIDDEN_DIM), (BATCH_SIZE, HIDDEN_DIM)
 
     
 class Decoder(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, num_layers, dropout, bidirectional):
+    def __init__(self, input_dim, hidden_dim, output_dim, num_layers, dropout, bidirectional, attention_type):
         super(Decoder, self).__init__()
         self.embedding = nn.Embedding(input_dim, hidden_dim)
         self.lstm = nn.LSTM(hidden_dim*2, hidden_dim, num_layers=num_layers, dropout=dropout, bidirectional=bidirectional, batch_first=True)
-        self.attention = BahdanauAttention(hidden_dim)
+
+        if attention_type == 'global':
+            self.attention = GlobalAttention(hidden_dim)
+        elif attention_type == 'local':
+            self.attention = LocalAttention(hidden_dim)
+        else:
+            raise ValueError("Invalid attention type. Choose 'global' or 'local'.")
+
         self.fc_hidden = nn.Linear(hidden_dim * 2 if bidirectional else hidden_dim, hidden_dim)
         self.fc_out = nn.Linear(hidden_dim, output_dim)
-        self.batch_norm = nn.BatchNorm1d(hidden_dim * 2 if bidirectional else hidden_dim)
+        self.layer_norm = nn.LayerNorm(hidden_dim * 2 if bidirectional else hidden_dim)
         self.dropout = nn.Dropout(dropout)
         self.fc = nn.Linear(hidden_dim * 2 if bidirectional else hidden_dim, hidden_dim)
         
     def forward(self, input, encoder_outputs, hidden):
-        
-        input = input.to(DEVICE)
+        # input.shape: (BATCH_SIZE, 1), encoder_outputs.shape: (BATCH_SIZE, MAX_LENGTH, HIDDEN_DIM), hidden.shape: (BATCH_SIZE, HIDDEN_DIM)
+        # input = input.to(DEVICE)
         embedded = self.dropout(self.embedding(input))
         context, attn_weights = self.attention(hidden, encoder_outputs)
         
@@ -65,14 +72,15 @@ class Decoder(nn.Module):
                 
         outputs, (hidden, _) = self.lstm(rnn_input, (hidden.unsqueeze(0).repeat(self.lstm.num_layers*(int(self.lstm.bidirectional)+1), 1, 1), cell))
         
-        outputs = self.batch_norm(outputs.permute(0, 2, 1))
-        outputs = outputs.permute(0, 2, 1)
+        outputs = self.layer_norm(outputs)
         
         if self.lstm.bidirectional:
             hidden = torch.cat((hidden[-2,:,:], hidden[-1,:,:]), dim=1)
             
         hidden = self.fc_hidden(hidden)
         outputs = self.fc(outputs)
+        outputs = self.dropout(outputs)
+        
         predictions = self.fc_out(outputs.squeeze(1))
         
         return predictions, hidden, attn_weights
@@ -83,22 +91,25 @@ class Seq2Seq(nn.Module):
         super(Seq2Seq, self).__init__()
         self.encoder = encoder
         self.decoder = decoder
-        self.device = DEVICE
         
     def forward(self, src, trg, teacher_forcing_ratio=0.5):
-        
-        outputs = torch.zeros(BATCH_SIZE, MAX_LENGTH, OUTPUT_DIM).to(DEVICE)
+        batch_size = src.shape[0]
+        trg_len = trg.shape[1]
+        outputs = torch.zeros(batch_size, trg_len, OUTPUT_DIM).to(DEVICE)
         
         encoder_outputs, hidden = self.encoder(src)
 
         input = trg[:, 0]  # trg.shape: (BATCH_SIZE, MAX_LENGTH), input: (BATCH_SIZE, 1)
         
         for t in range(1, MAX_LENGTH):
-            output, hidden, _ = self.decoder(input.unsqueeze(1), encoder_outputs, hidden)
-            outputs[:, t] = output
+            output, hidden, _ = self.decoder(
+                input.unsqueeze(1), encoder_outputs, hidden
+            )
+
+            outputs[:, t, :] = output
             
-            top1 = output.argmax(1)  
-            
-            input = top1 if torch.rand(1) > teacher_forcing_ratio else trg[:, t]
+            teacher_force = torch.rand(1, device=DEVICE).item() < teacher_forcing_ratio
+            top1 = output.argmax(1)
+            input = trg[:, t] if teacher_force else top1
             
         return outputs  
