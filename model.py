@@ -17,7 +17,7 @@ class Encoder(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim, num_layers, dropout, bidirectional):
         super(Encoder, self).__init__()
         self.embedding = nn.Embedding(input_dim, hidden_dim)
-        self.rnn = nn.RNN(hidden_dim, hidden_dim, num_layers=num_layers, dropout=dropout, bidirectional=bidirectional, batch_first=True)
+        self.lstm = nn.LSTM(hidden_dim, hidden_dim, num_layers=num_layers, dropout=dropout, bidirectional=bidirectional, batch_first=True)
         self.fc = nn.Linear(hidden_dim * 2 if bidirectional else hidden_dim, hidden_dim)
         self.fc_hidden = nn.Linear(hidden_dim * 2 if bidirectional else hidden_dim, hidden_dim)
         self.batch_norm = nn.BatchNorm1d(hidden_dim * 2 if bidirectional else hidden_dim)
@@ -27,12 +27,12 @@ class Encoder(nn.Module):
        
         x = x.to(DEVICE)
         embedded = self.dropout(self.embedding(x))
-        outputs, hidden = self.rnn(embedded)
+        outputs, (hidden, _) = self.lstm(embedded)
         
         outputs = self.batch_norm(outputs.permute(0, 2, 1))  
         outputs = outputs.permute(0, 2, 1) 
         
-        if self.rnn.bidirectional:
+        if self.lstm.bidirectional:
             hidden = torch.cat((hidden[-2,:,:], hidden[-1,:,:]), dim=1)
 
         outputs = self.fc(outputs)
@@ -45,7 +45,7 @@ class Decoder(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim, num_layers, dropout, bidirectional):
         super(Decoder, self).__init__()
         self.embedding = nn.Embedding(input_dim, hidden_dim)
-        self.rnn = nn.RNN(hidden_dim*2, hidden_dim, num_layers=num_layers, dropout=dropout, bidirectional=bidirectional, batch_first=True)
+        self.lstm = nn.LSTM(hidden_dim*2, hidden_dim, num_layers=num_layers, dropout=dropout, bidirectional=bidirectional, batch_first=True)
         self.attention = BahdanauAttention(hidden_dim)
         self.fc_hidden = nn.Linear(hidden_dim * 2 if bidirectional else hidden_dim, hidden_dim)
         self.fc_out = nn.Linear(hidden_dim, output_dim)
@@ -59,13 +59,16 @@ class Decoder(nn.Module):
         embedded = self.dropout(self.embedding(input))
         context, attn_weights = self.attention(hidden, encoder_outputs)
         
+        cell = torch.zeros_like(hidden.unsqueeze(0).repeat(self.lstm.num_layers*(int(self.lstm.bidirectional)+1), 1, 1)).to(DEVICE)
+        
         rnn_input = torch.cat((embedded, context), dim=2)
-        outputs, hidden = self.rnn(rnn_input, hidden.unsqueeze(0).repeat(self.rnn.num_layers*(int(self.rnn.bidirectional)+1), 1, 1))
+                
+        outputs, (hidden, _) = self.lstm(rnn_input, (hidden.unsqueeze(0).repeat(self.lstm.num_layers*(int(self.lstm.bidirectional)+1), 1, 1), cell))
         
         outputs = self.batch_norm(outputs.permute(0, 2, 1))
         outputs = outputs.permute(0, 2, 1)
         
-        if self.rnn.bidirectional:
+        if self.lstm.bidirectional:
             hidden = torch.cat((hidden[-2,:,:], hidden[-1,:,:]), dim=1)
             
         hidden = self.fc_hidden(hidden)
@@ -84,8 +87,7 @@ class Seq2Seq(nn.Module):
         
     def forward(self, src, trg, teacher_forcing_ratio=0.5):
         
-        # outputs = torch.zeros(batch_size, max_len, trg_vocab_size).to(self.device)
-        outputs = torch.zeros(BATCH_SIZE, MAX_LENGTH, OUTPUT_DIM)
+        outputs = torch.zeros(BATCH_SIZE, MAX_LENGTH, OUTPUT_DIM).to(DEVICE)
         
         encoder_outputs, hidden = self.encoder(src)
 
