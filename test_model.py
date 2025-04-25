@@ -171,4 +171,76 @@ def test_decoder_local_attention_shapes(method, align_method):
     # Assert output shapes
     assert output.shape == (BATCH_SIZE, MAX_LENGTH, OUTPUT_DIM)
     assert hidden.shape == (BATCH_SIZE, HIDDEN_DIM)
-    assert attn_weights.shape == (BATCH_SIZE, MAX_LENGTH)    
+    assert attn_weights.shape == (BATCH_SIZE, MAX_LENGTH)   
+    
+ 
+@pytest.mark.parametrize("align_method", ["dot", "general", "concat"])
+def test_seq2seq_global_shapes(align_method):
+    encoder = Encoder(
+        input_dim=INPUT_DIM,
+        hidden_dim=HIDDEN_DIM,
+        embedding_dim=EMBEDDING_DIM,
+        output_dim=OUTPUT_DIM,
+        num_layers=NUM_LAYERS,
+        dropout=DROPOUT,
+        bidirectional=BIDIRECTIONAL_ENCODER
+    )    
+    
+    decoder = Decoder(
+        input_dim=INPUT_DIM,
+        hidden_dim=HIDDEN_DIM,
+        embedding_dim=EMBEDDING_DIM,
+        output_dim=OUTPUT_DIM,
+        num_layers=NUM_LAYERS,
+        dropout=DROPOUT,
+        bidirectional=BIDIRECTIONAL_DECODER,
+        attention_type='global'  
+    )
+    
+    seq2seq = Seq2Seq(encoder, decoder)
+    outputs = seq2seq(
+        src=first_batch["src_ids"], 
+        trg=first_batch["trg_ids"], 
+        teacher_forcing_ratio=TEACHER_FORCING_RATIO, 
+        align_method=align_method,
+        method=None    
+    )
+    
+    assert outputs.shape == (BATCH_SIZE, MAX_LENGTH, OUTPUT_DIM)
+    
+@pytest.mark.parametrize(
+    "method, align_method",
+    itertools.product(["monotonic", "predictive"], ["dot", "general", "concat"])
+)
+def test_seq2seq_local_shapes(method, align_method):
+    encoder = Encoder(
+        input_dim=INPUT_DIM,
+        hidden_dim=HIDDEN_DIM,
+        embedding_dim=EMBEDDING_DIM,
+        output_dim=OUTPUT_DIM,
+        num_layers=NUM_LAYERS,
+        dropout=DROPOUT,
+        bidirectional=BIDIRECTIONAL_ENCODER
+    )    
+    
+    decoder = Decoder(
+        input_dim=INPUT_DIM,
+        hidden_dim=HIDDEN_DIM,
+        embedding_dim=EMBEDDING_DIM,
+        output_dim=OUTPUT_DIM,
+        num_layers=NUM_LAYERS,
+        dropout=DROPOUT,
+        bidirectional=BIDIRECTIONAL_DECODER,
+        attention_type='local'  
+    )
+    
+    seq2seq = Seq2Seq(encoder, decoder)
+    outputs = seq2seq(
+        src=first_batch["src_ids"], 
+        trg=first_batch["trg_ids"], 
+        teacher_forcing_ratio=TEACHER_FORCING_RATIO, 
+        align_method=align_method,
+        method=method    
+    )
+    
+    assert outputs.shape == (BATCH_SIZE, MAX_LENGTH, OUTPUT_DIM)
