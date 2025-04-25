@@ -52,7 +52,7 @@ def compute_bleu(predictions, targets):
     # and the predictions should be a list of token IDs too.
     return corpus_bleu([[target] for target in targets], predictions, smoothing_function=smoothing_function)
 
-def train_fn(model, train_loader, optimizer, criterion, clip, teacher_forcing_ratio=0.5, device='cuda'):
+def train_fn(model, train_loader, optimizer, criterion, clip, teacher_forcing_ratio, device, method, align_method):
     model.train()  # Set model to training mode
     epoch_train_loss = 0
 
@@ -63,7 +63,7 @@ def train_fn(model, train_loader, optimizer, criterion, clip, teacher_forcing_ra
         optimizer.zero_grad()  # Clear previous gradients
         
         # Forward pass
-        output = model(source, target, teacher_forcing_ratio)  # Get the model's output
+        output = model(source, target, teacher_forcing_ratio, align_method, method)  # Get the model's output
         output = output.to(device)
         # Calculate loss (using CrossEntropy loss between the predicted and true target)
         loss = criterion(output[1:].view(-1, output.size(-1)), target[1:].view(-1))  # Flatten for CE loss
@@ -83,7 +83,7 @@ def train_fn(model, train_loader, optimizer, criterion, clip, teacher_forcing_ra
     print(f"Training Loss: {avg_train_loss:.4f}")
     return avg_train_loss
 
-def evaluate_fn(model, val_loader, criterion, device='cuda'):
+def evaluate_fn(model, val_loader, criterion, device, method, align_method):
     model.eval()  # Set model to evaluation mode
     epoch_val_loss = 0
     val_predictions = []
@@ -96,7 +96,7 @@ def evaluate_fn(model, val_loader, criterion, device='cuda'):
             target = batch['trg_ids'].to(device)
 
             # Forward pass (no teacher forcing during evaluation)
-            output = model(source, target, teacher_forcing_ratio=0)  # teacher_forcing_ratio=0 during evaluation
+            output = model(source, target, 0, align_method, method)  # teacher_forcing_ratio=0 during evaluation
             
             # Calculate loss
             loss = criterion(output[1:].view(-1, output.size(-1)), target[1:].view(-1))  # Flatten for CE loss
@@ -119,9 +119,9 @@ def evaluate_fn(model, val_loader, criterion, device='cuda'):
     return avg_val_loss, val_bleu_score
 
 def train_and_evaluate(model, train_loader, val_loader, optimizer, criterion, scheduler,
-                       n_epochs=1, teacher_forcing_ratio=0.5, device='cuda',
-                       start_epoch=0, train_losses=None, val_losses=None, bleu_scores=None,
-                       best_valid_loss=float("inf")):
+                       n_epochs, teacher_forcing_ratio, device,
+                       start_epoch, train_losses, val_losses, bleu_scores,
+                       best_valid_loss, method, align_method):
 
     train_losses = train_losses or []
     val_losses = val_losses or []
@@ -132,11 +132,12 @@ def train_and_evaluate(model, train_loader, val_loader, optimizer, criterion, sc
 
         # Train the model
         train_loss = train_fn(model, train_loader, optimizer, criterion,
-                              clip=1.0, teacher_forcing_ratio=teacher_forcing_ratio, device=device)
+                              clip=1.0, teacher_forcing_ratio=teacher_forcing_ratio, 
+                              device=device, method=method, align_method=align_method)
         train_losses.append(train_loss)
 
         # Evaluate the model
-        val_loss, val_bleu_score = evaluate_fn(model, val_loader, criterion, device=device)
+        val_loss, val_bleu_score = evaluate_fn(model, val_loader, criterion, device, method, align_method)
         val_losses.append(val_loss)
         bleu_scores.append(val_bleu_score)
 

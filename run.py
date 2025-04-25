@@ -16,6 +16,9 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Train a Seq2Seq model")
     parser.add_argument("--checkpoint", type=str, help="Path to training data", default="")
     parser.add_argument("--n_epochs", type=int, required=True, help="Path to number of epochs")
+    parser.add_argument("--attention_type", type=str, required=True, help="Define attention type", choices=["local", "global"])
+    parser.add_argument("--method", type=str, required=True, help="Define whether using monotonic or predictive, for local-type only", choices=["monotonic", "predictive"])
+    parser.add_argument("--align_method", type=str, required=True, help="Define align function", choices=["dot", "general", "concat"])
     
     return parser.parse_args()
 
@@ -31,6 +34,10 @@ def main():
     args = parse_args()
     checkpoint_path = args.checkpoint
     n_epochs = args.n_epochs
+    attention_type = args.attention_type
+    method = args.method 
+    align_method = args.align_method
+    
     
     src_pad_index = en_tokenizer.token_to_id(pad_token)
     trg_pad_index = vi_tokenizer.token_to_id(pad_token)
@@ -38,19 +45,22 @@ def main():
     encoder = Encoder(
         input_dim=INPUT_DIM,
         hidden_dim=HIDDEN_DIM,
+        embedding_dim=EMBEDDING_DIM,
         output_dim=OUTPUT_DIM,
         num_layers=NUM_LAYERS,
         dropout=DROPOUT,
-        bidirectional=BIDIRECTIONAL
+        bidirectional=BIDIRECTIONAL_ENCODER
     )
 
     decoder = Decoder(
         input_dim=INPUT_DIM,
         hidden_dim=HIDDEN_DIM,
+        embedding_dim=EMBEDDING_DIM,
         output_dim=OUTPUT_DIM,
         num_layers=NUM_LAYERS,
         dropout=DROPOUT,
-        bidirectional=BIDIRECTIONAL
+        bidirectional=BIDIRECTIONAL_DECODER, 
+        attention_type=attention_type
     )
     print("Model initialized")
     
@@ -102,7 +112,9 @@ def main():
         train_losses=train_losses,
         val_losses=val_losses,
         bleu_scores=bleu_scores,
-        best_valid_loss=best_valid_loss
+        best_valid_loss=best_valid_loss, 
+        method=method, 
+        align_method=align_method
     )
     
     print("Training complete. Model saved to checkpoint.pth")

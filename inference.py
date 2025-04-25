@@ -1,5 +1,6 @@
 from config import *
 from model import *
+
 import torch
 import argparse
 
@@ -8,11 +9,14 @@ def parse_args():
     parser.add_argument("--checkpoint", type=str, required=True, help="Path to the model checkpoint")
     parser.add_argument("--input_text", type=str, help="Input text to translate", default="")
     parser.add_argument("--index", type=int, help="index to generate sample input from train data", default=0)
+    parser.add_argument("--attention_type", type=str, required=True, help="Define attention type", choices=["local", "global"])
+    parser.add_argument("--method", type=str, required=True, help="Define whether using monotonic or predictive, for local-type only", choices=["monotonic", "predictive"])
+    parser.add_argument("--align_method", type=str, required=True, help="Define align function", choices=["dot", "general", "concat"])
     
     return parser.parse_args()
 
 
-def translate_sentence(sentence, model, en_tokenizer, vi_tokenizer, vi_id_to_token, device, max_output_length=MAX_LENGTH):
+def translate_sentence(sentence, model, en_tokenizer, vi_tokenizer, vi_id_to_token, device, method, align_method):
     model.eval()  # Set the model to evaluation mode
     with torch.no_grad():  # Disable gradient computation
         # Tokenize the input sentence (convert to token IDs)
@@ -31,10 +35,18 @@ def translate_sentence(sentence, model, en_tokenizer, vi_tokenizer, vi_id_to_tok
         input_token = torch.LongTensor([vi_tokenizer.token_to_id(sos_token)]).to(device)  # [1]
         
         outputs = [input_token.item()]  # Store the generated tokens
-        for _ in range(max_output_length):
+        for t in range(MAX_LENGTH):
+            timestep = torch.full((BATCH_SIZE,), t, dtype=torch.long)
             
             # Pass the current input token along with hidden and cell states to the decoder
-            output, hidden, _ = model.decoder(input_token, hidden, encoder_outputs)
+            output, hidden, _ = model.decoder(
+                input_token, 
+                hidden, 
+                encoder_outputs, 
+                align_method, 
+                method, 
+                timestep
+            )
 
             # Get the predicted token (index of the highest probability)
             predicted_token = output.argmax(-1).item()
@@ -67,6 +79,9 @@ def main():
     checkpoint_path = args.checkpoint
     input_text = args.input_text
     index = args.index
+    attention_type = args.attention_type
+    method = args.method
+    align_method = args.align_method
     
     # Load the model
     encoder = Encoder(
@@ -75,7 +90,7 @@ def main():
         output_dim=OUTPUT_DIM,
         num_layers=NUM_LAYERS,
         dropout=DROPOUT,
-        bidirectional=BIDIRECTIONAL
+        bidirectional=BIDIRECTIONAL_ENCODER
     )
     
     decoder = Decoder(
@@ -84,7 +99,8 @@ def main():
         output_dim=OUTPUT_DIM,
         num_layers=NUM_LAYERS,
         dropout=DROPOUT,
-        bidirectional=BIDIRECTIONAL
+        bidirectional=BIDIRECTIONAL_DECODER, 
+        attention_type=attention_type
     )
     
     model = Seq2Seq(encoder, decoder, device=DEVICE)
@@ -106,9 +122,17 @@ def main():
     print("Expected Translation (Vietnamese):", expected_translation)
 
     # Run the translation function
-    translation = translate_sentence(sentence, model, en_tokenizer, vi_tokenizer, vi_id_to_token, DEVICE)
+    translation = translate_sentence(
+        sentence, 
+        model, 
+        en_tokenizer, 
+        vi_tokenizer, 
+        vi_id_to_token, 
+        DEVICE, 
+        method,
+        align_method
+    )
     print("Model Translation:", translation)    
-    
     
 if __name__ == "__main__":
     main()
