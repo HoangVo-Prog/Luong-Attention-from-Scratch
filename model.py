@@ -84,7 +84,7 @@ class Decoder(nn.Module):
                                                timestep=timestep)  # [batch_size, hidden_dim], [batch_size, seq_len]
         
         outputs = torch.cat((outputs, context_vector.unsqueeze(1).repeat(1, outputs.size(1), 1)), dim=-1)
-        print(outputs.shape)
+
         hidden = self.fc_hidden(hidden).squeeze(0)
         outputs = self.fc(outputs)
         outputs = self.dropout(outputs)

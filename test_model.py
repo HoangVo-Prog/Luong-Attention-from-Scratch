@@ -4,6 +4,7 @@ from model import *
 from config import *
 from attention import *
 import pytest
+import itertools
 
 for batch in train_data_loader:
     first_batch = batch
@@ -28,110 +29,33 @@ def test_encoder_output_shapes():
     assert hidden.shape == (BATCH_SIZE, HIDDEN_DIM)
 
 
-def test_global_attention_dot_shapes():
+@pytest.mark.parametrize("align_method", ["dot", "general", "concat"])
+def test_global_attention_shapes(align_method):
     global first_batch
     
     attention = GlobalAttention(hidden_dim=HIDDEN_DIM)
     encoder_outputs = torch.randn(BATCH_SIZE, MAX_LENGTH, HIDDEN_DIM)  # Encoder output
     hidden = torch.randn(BATCH_SIZE, HIDDEN_DIM)  # Decoder hidden state
-    context, attn_weights = attention(encoder_outputs, hidden, align_method="dot")
-    assert context.shape == (BATCH_SIZE, HIDDEN_DIM)
-    assert attn_weights.shape == (BATCH_SIZE, MAX_LENGTH)
-    
-    
-def test_global_attention_general_shapes():
-    global first_batch
-    
-    attention = GlobalAttention(hidden_dim=HIDDEN_DIM)
-    encoder_outputs = torch.randn(BATCH_SIZE, MAX_LENGTH, HIDDEN_DIM)  # Encoder output
-    hidden = torch.randn(BATCH_SIZE, HIDDEN_DIM)  # Decoder hidden state
-    context, attn_weights = attention(encoder_outputs, hidden, align_method="general")
-    assert context.shape == (BATCH_SIZE, HIDDEN_DIM)
-    assert attn_weights.shape == (BATCH_SIZE, MAX_LENGTH)
-    
-    
-def test_global_attention_concat_shapes():
-    global first_batch
-    
-    attention = GlobalAttention(hidden_dim=HIDDEN_DIM)
-    encoder_outputs = torch.randn(BATCH_SIZE, MAX_LENGTH, HIDDEN_DIM)  # Encoder output
-    hidden = torch.randn(BATCH_SIZE, HIDDEN_DIM)  # Decoder hidden state
-    context, attn_weights = attention(encoder_outputs, hidden, align_method="concat")
-    assert context.shape == (BATCH_SIZE, HIDDEN_DIM)
-    assert attn_weights.shape == (BATCH_SIZE, MAX_LENGTH)
-
-
-def test_local_attention_monotonic_dot_shapes():
-    global first_batch
-    
-    attention = LocalAttention(hidden_dim=HIDDEN_DIM)
-    encoder_outputs = torch.randn(BATCH_SIZE, MAX_LENGTH, HIDDEN_DIM)  # Encoder output
-    hidden = torch.randn(BATCH_SIZE, HIDDEN_DIM)  # Decoder hidden state
-    timestep = torch.randint(0, MAX_LENGTH, (BATCH_SIZE,))  # Random timestep for testing
-    context, attn_weights = attention(encoder_outputs, method="monotonic", align_method="dot", timestep=timestep, decoder_hidden=hidden)
-    assert context.shape == (BATCH_SIZE, HIDDEN_DIM)
-    assert attn_weights.shape == (BATCH_SIZE, MAX_LENGTH)
-    
-    
-def test_local_attention_monotonic_general_shapes():
-    global first_batch
-    
-    attention = LocalAttention(hidden_dim=HIDDEN_DIM)
-    encoder_outputs = torch.randn(BATCH_SIZE, MAX_LENGTH, HIDDEN_DIM)  # Encoder output
-    hidden = torch.randn(BATCH_SIZE, HIDDEN_DIM)  # Decoder hidden state
-    timestep = torch.randint(0, MAX_LENGTH, (BATCH_SIZE,))  # Random timestep for testing
-    context, attn_weights = attention(encoder_outputs, method="monotonic", align_method="general", timestep=timestep, decoder_hidden=hidden)
+    context, attn_weights = attention(encoder_outputs, hidden, align_method)
     assert context.shape == (BATCH_SIZE, HIDDEN_DIM)
     assert attn_weights.shape == (BATCH_SIZE, MAX_LENGTH)
     
 
-def test_local_attention_monotonic_concat_shapes():
+@pytest.mark.parametrize(
+    "method, align_method",
+    itertools.product(["monotonic", "predictive"], ["dot", "general", "concat"])
+)
+def test_local_attention_shapes(method, align_method):
     global first_batch
     
     attention = LocalAttention(hidden_dim=HIDDEN_DIM)
     encoder_outputs = torch.randn(BATCH_SIZE, MAX_LENGTH, HIDDEN_DIM)  # Encoder output
     hidden = torch.randn(BATCH_SIZE, HIDDEN_DIM)  # Decoder hidden state
     timestep = torch.randint(0, MAX_LENGTH, (BATCH_SIZE,))  # Random timestep for testing
-    context, attn_weights = attention(encoder_outputs, method="monotonic", align_method="concat", timestep=timestep, decoder_hidden=hidden)
+    context, attn_weights = attention(encoder_outputs, hidden, align_method, method, timestep)
     assert context.shape == (BATCH_SIZE, HIDDEN_DIM)
     assert attn_weights.shape == (BATCH_SIZE, MAX_LENGTH)
-    
-    
-def test_local_attention_predictive_dot_shapes():
-    global first_batch
-    
-    attention = LocalAttention(hidden_dim=HIDDEN_DIM)
-    encoder_outputs = torch.randn(BATCH_SIZE, MAX_LENGTH, HIDDEN_DIM)  # Encoder output
-    hidden = torch.randn(BATCH_SIZE, HIDDEN_DIM)  # Decoder hidden state
-    timestep = torch.randint(0, MAX_LENGTH, (BATCH_SIZE,))  # Random timestep for testing
-    context, attn_weights = attention(encoder_outputs, method="predictive", align_method="dot", timestep=timestep, decoder_hidden=hidden)
-    assert context.shape == (BATCH_SIZE, HIDDEN_DIM)
-    assert attn_weights.shape == (BATCH_SIZE, MAX_LENGTH)
-    
-
-def test_local_attention_predictive_general_shapes():
-    global first_batch
-    
-    attention = LocalAttention(hidden_dim=HIDDEN_DIM)
-    encoder_outputs = torch.randn(BATCH_SIZE, MAX_LENGTH, HIDDEN_DIM)  # Encoder output
-    hidden = torch.randn(BATCH_SIZE, HIDDEN_DIM)  # Decoder hidden state
-    timestep = torch.randint(0, MAX_LENGTH, (BATCH_SIZE,))  # Random timestep for testing
-    context, attn_weights = attention(encoder_outputs, method="predictive", align_method="general", timestep=timestep, decoder_hidden=hidden)
-    assert context.shape == (BATCH_SIZE, HIDDEN_DIM)
-    assert attn_weights.shape == (BATCH_SIZE, MAX_LENGTH)
-    
-    
-def test_local_attention_predictive_concat_shapes():
-    global first_batch
-    
-    attention = LocalAttention(hidden_dim=HIDDEN_DIM)
-    encoder_outputs = torch.randn(BATCH_SIZE, MAX_LENGTH, HIDDEN_DIM)  # Encoder output
-    hidden = torch.randn(BATCH_SIZE, HIDDEN_DIM)  # Decoder hidden state
-    timestep = torch.randint(0, MAX_LENGTH, (BATCH_SIZE,))  # Random timestep for testing
-    context, attn_weights = attention(encoder_outputs, method="predictive", align_method="concat", timestep=timestep, decoder_hidden=hidden)
-    assert context.shape == (BATCH_SIZE, HIDDEN_DIM)
-    assert attn_weights.shape == (BATCH_SIZE, MAX_LENGTH)   
-    
+       
     
 def test_global_attention_exception_shapes():
     global first_batch
@@ -175,9 +99,9 @@ def test_data_loader_shapes():
     assert trg_ids.shape == (BATCH_SIZE, MAX_LENGTH)    
     
     
-def test_decoder_global_dot_shapes():
-    global first_batch
-    
+ 
+@pytest.mark.parametrize("align_method", ["dot", "general", "concat"])
+def test_decoder_global_attention_shapes(align_method):
     decoder = Decoder(
         input_dim=INPUT_DIM,
         hidden_dim=HIDDEN_DIM,
@@ -186,15 +110,17 @@ def test_decoder_global_dot_shapes():
         num_layers=NUM_LAYERS,
         dropout=DROPOUT,
         bidirectional=BIDIRECTIONAL_DECODER,
-        attention_type='global'  # or 'local'
+        attention_type='global'  
     )
+    
+    # Inputs and initial states
     input_tensor = first_batch['trg_ids']
     encoder_outputs = torch.randn(BATCH_SIZE, MAX_LENGTH, HIDDEN_DIM)  # Encoder output
     hidden = torch.randn(BATCH_SIZE, HIDDEN_DIM)  # Decoder hidden state
     method = None
-    align_method = "dot"
     timestep = None
     
+    # Run the decoder
     output, hidden, attn_weights = decoder(
         input=input_tensor, 
         encoder_outputs=encoder_outputs, 
@@ -202,8 +128,47 @@ def test_decoder_global_dot_shapes():
         align_method=align_method,
         method=method,
         timestep=timestep
-        )
+    )
+
+    # Assert output shapes
     assert output.shape == (BATCH_SIZE, MAX_LENGTH, OUTPUT_DIM)
     assert hidden.shape == (BATCH_SIZE, HIDDEN_DIM)
-    assert attn_weights.shape == (BATCH_SIZE, MAX_LENGTH)
+    assert attn_weights.shape == (BATCH_SIZE, MAX_LENGTH)    
     
+  
+@pytest.mark.parametrize(
+    "method, align_method",
+    itertools.product(["monotonic", "predictive"], ["dot", "general", "concat"])
+)
+def test_decoder_local_attention_shapes(method, align_method):
+    decoder = Decoder(
+        input_dim=INPUT_DIM,
+        hidden_dim=HIDDEN_DIM,
+        embedding_dim=EMBEDDING_DIM,
+        output_dim=OUTPUT_DIM,
+        num_layers=NUM_LAYERS,
+        dropout=DROPOUT,
+        bidirectional=BIDIRECTIONAL_DECODER,
+        attention_type='local'  
+    )
+    
+    # Inputs and initial states
+    input_tensor = first_batch['trg_ids']
+    encoder_outputs = torch.randn(BATCH_SIZE, MAX_LENGTH, HIDDEN_DIM)  # Encoder output
+    hidden = torch.randn(BATCH_SIZE, HIDDEN_DIM)  # Decoder hidden state
+    timestep = torch.randint(0, MAX_LENGTH, (BATCH_SIZE,))  # Random timestep for testing
+    
+    # Run the decoder
+    output, hidden, attn_weights = decoder(
+        input=input_tensor, 
+        encoder_outputs=encoder_outputs, 
+        hidden=hidden, 
+        align_method=align_method,
+        method=method,
+        timestep=timestep
+    )
+
+    # Assert output shapes
+    assert output.shape == (BATCH_SIZE, MAX_LENGTH, OUTPUT_DIM)
+    assert hidden.shape == (BATCH_SIZE, HIDDEN_DIM)
+    assert attn_weights.shape == (BATCH_SIZE, MAX_LENGTH)    
