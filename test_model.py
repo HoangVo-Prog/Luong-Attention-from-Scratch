@@ -16,6 +16,7 @@ def test_encoder_output_shapes():
     encoder = Encoder(
         input_dim=INPUT_DIM,
         hidden_dim=HIDDEN_DIM,
+        embedding_dim=EMBEDDING_DIM,
         output_dim=OUTPUT_DIM,
         num_layers=NUM_LAYERS,
         dropout=DROPOUT,
@@ -33,7 +34,7 @@ def test_global_attention_dot_shapes():
     attention = GlobalAttention(hidden_dim=HIDDEN_DIM)
     encoder_outputs = torch.randn(BATCH_SIZE, MAX_LENGTH, HIDDEN_DIM)  # Encoder output
     hidden = torch.randn(BATCH_SIZE, HIDDEN_DIM)  # Decoder hidden state
-    context, attn_weights = attention(encoder_outputs, hidden, method="dot")
+    context, attn_weights = attention(encoder_outputs, hidden, align_method="dot")
     assert context.shape == (BATCH_SIZE, HIDDEN_DIM)
     assert attn_weights.shape == (BATCH_SIZE, MAX_LENGTH)
     
@@ -44,7 +45,7 @@ def test_global_attention_general_shapes():
     attention = GlobalAttention(hidden_dim=HIDDEN_DIM)
     encoder_outputs = torch.randn(BATCH_SIZE, MAX_LENGTH, HIDDEN_DIM)  # Encoder output
     hidden = torch.randn(BATCH_SIZE, HIDDEN_DIM)  # Decoder hidden state
-    context, attn_weights = attention(encoder_outputs, hidden, method="general")
+    context, attn_weights = attention(encoder_outputs, hidden, align_method="general")
     assert context.shape == (BATCH_SIZE, HIDDEN_DIM)
     assert attn_weights.shape == (BATCH_SIZE, MAX_LENGTH)
     
@@ -55,7 +56,7 @@ def test_global_attention_concat_shapes():
     attention = GlobalAttention(hidden_dim=HIDDEN_DIM)
     encoder_outputs = torch.randn(BATCH_SIZE, MAX_LENGTH, HIDDEN_DIM)  # Encoder output
     hidden = torch.randn(BATCH_SIZE, HIDDEN_DIM)  # Decoder hidden state
-    context, attn_weights = attention(encoder_outputs, hidden, method="concat")
+    context, attn_weights = attention(encoder_outputs, hidden, align_method="concat")
     assert context.shape == (BATCH_SIZE, HIDDEN_DIM)
     assert attn_weights.shape == (BATCH_SIZE, MAX_LENGTH)
 
@@ -139,7 +140,7 @@ def test_global_attention_exception_shapes():
     encoder_outputs = torch.randn(BATCH_SIZE, MAX_LENGTH, HIDDEN_DIM)  # Encoder output
     hidden = torch.randn(BATCH_SIZE, HIDDEN_DIM)  # Decoder hidden state
     with pytest.raises(ValueError):
-        _, _ = attention(encoder_outputs, hidden, method="invalid_method")
+        _, _ = attention(encoder_outputs, hidden, align_method="invalid_method")
         
         
 def test_local_attention_exception_align_method_shapes():
@@ -174,12 +175,13 @@ def test_data_loader_shapes():
     assert trg_ids.shape == (BATCH_SIZE, MAX_LENGTH)    
     
     
-def test_decoder_shapes():
+def test_decoder_global_dot_shapes():
     global first_batch
     
     decoder = Decoder(
         input_dim=INPUT_DIM,
         hidden_dim=HIDDEN_DIM,
+        embedding_dim=EMBEDDING_DIM,
         output_dim=OUTPUT_DIM,
         num_layers=NUM_LAYERS,
         dropout=DROPOUT,
@@ -189,7 +191,19 @@ def test_decoder_shapes():
     input_tensor = first_batch['trg_ids']
     encoder_outputs = torch.randn(BATCH_SIZE, MAX_LENGTH, HIDDEN_DIM)  # Encoder output
     hidden = torch.randn(BATCH_SIZE, HIDDEN_DIM)  # Decoder hidden state
-    output, attn_weights = decoder(input_tensor, encoder_outputs, hidden)
-    assert output.shape == (BATCH_SIZE, OUTPUT_DIM)
+    method = None
+    align_method = "dot"
+    timestep = None
+    
+    output, hidden, attn_weights = decoder(
+        input=input_tensor, 
+        encoder_outputs=encoder_outputs, 
+        hidden=hidden, 
+        align_method=align_method,
+        method=method,
+        timestep=timestep
+        )
+    assert output.shape == (BATCH_SIZE, MAX_LENGTH, OUTPUT_DIM)
+    assert hidden.shape == (BATCH_SIZE, HIDDEN_DIM)
     assert attn_weights.shape == (BATCH_SIZE, MAX_LENGTH)
     

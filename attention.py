@@ -3,23 +3,14 @@ import torch.nn as nn
 from config import *
 
 
-class GlobalAttention(nn.Module):
+class AttentionBase(nn.Module):
     def __init__(self, hidden_dim):
-        super(GlobalAttention, self).__init__()
-                
-        self.Va = nn.Linear(hidden_dim*2, 1) # for concat method
+        super(AttentionBase, self).__init__()
+        self.Va = nn.Linear(hidden_dim * 2, 1)
         self.Wa = nn.Linear(hidden_dim, hidden_dim)
 
-    def forward(self, encoder_outputs, hidden, method):
-        attention_weights = torch.softmax(self.align(hidden, encoder_outputs, method), dim=1)  # [batch_size, seq_len]
-
-        context = torch.bmm(attention_weights.unsqueeze(1), encoder_outputs)  # [batch_size, 1, hidden_size]
-        context = context.squeeze(1)  # [batch_size, hidden_size]
-
-        return context, attention_weights
-    
     def align(self, decoder_hidden, encoder_outputs, method):
-        if method == "dot": 
+        if method == "dot":
             return torch.bmm(decoder_hidden.unsqueeze(1), encoder_outputs.transpose(1, 2)).squeeze(1)
         elif method == "general":
             return torch.bmm(decoder_hidden.unsqueeze(1), self.Wa(encoder_outputs).transpose(1, 2)).squeeze(1)
@@ -28,20 +19,26 @@ class GlobalAttention(nn.Module):
             concat_input = torch.cat([decoder_hidden_expanded, encoder_outputs], dim=-1)
             return self.Va(torch.tanh(concat_input)).squeeze(2)
         else:
+            print("Current attention method: ", method)
             raise ValueError("Invalid attention method. Choose 'dot', 'general', or 'concat'.")
+
+
+class GlobalAttention(AttentionBase):
+    def __init__(self, hidden_dim):
+        super(GlobalAttention, self).__init__(hidden_dim)
+
+    def forward(self, encoder_outputs, decoder_hidden, align_method, method=None, timestep=None):
+        attention_weights = torch.softmax(self.align(decoder_hidden, encoder_outputs, align_method), dim=1)
+        context_vector = torch.bmm(attention_weights.unsqueeze(1), encoder_outputs).squeeze(1)
+        return context_vector, attention_weights
         
-        
-    
-    
-class LocalAttention(nn.Module):
+           
+class LocalAttention(AttentionBase):
     def __init__(self, hidden_dim, sigma=1):
-        super(LocalAttention, self).__init__()
+        super(LocalAttention, self).__init__(hidden_dim)
         
         self.sigma = sigma
-        
-        self.Va = nn.Linear(hidden_dim*2, 1)
         self.Vp = nn.Linear(hidden_dim, 1)
-        self.Wa = nn.Linear(hidden_dim, hidden_dim)
         
     def monotonic_attention(self, timestep):
         return timestep
@@ -70,36 +67,22 @@ class LocalAttention(nn.Module):
         return torch.exp(-((s - p_t) ** 2) / (2 * self.sigma ** 2)) # [batch_size, seq_len]
 
 
-    def forward(self, encoder_outputs, method, align_method, timestep, decoder_hidden):
+    
+    def forward(self, encoder_outputs, decoder_hidden, align_method, method, timestep):
         if method == 'monotonic':
-            p = self.monotonic_attention(timestep) # [batch_size, 1]
+            p = self.monotonic_attention(timestep)
         elif method == 'predictive':
-            p = self.predictive_attention(encoder_outputs) # [batch_size, seq_len, 1]
-            print("p shape:", p.shape)  # [batch_size, seq_len, 1]
+            p = self.predictive_attention(encoder_outputs)
         else:
             raise ValueError("Invalid attention method. Choose 'monotonic' or 'predictive'.")
-        
-        # gaussian_scores = self.gaussian_term(torch.arange(MAX_LENGTH, device=DEVICE).float().unsqueeze(0), p)
-        gaussian_scores = self.gaussian_term(torch.arange(MAX_LENGTH).float().unsqueeze(0), p)
-        attention_weights = torch.softmax(self.align(decoder_hidden, encoder_outputs, align_method), dim=1) * gaussian_scores  # [batch_size, seq_len]
-        
-        context_vector = torch.bmm(attention_weights.unsqueeze(1), encoder_outputs)  # [batch_size, 1, hidden_dim]
-        context_vector = context_vector.squeeze(1)  # [batch_size, hidden_dim]
 
+        # s = torch.arange(MAX_LENGTH).float().unsqueeze(0).to(encoder_outputs.DEVICE)
+        s = torch.arange(MAX_LENGTH).float().unsqueeze(0).to(encoder_outputs)
+
+        gaussian_scores = self.gaussian_term(s, p)
+        attention_weights = torch.softmax(self.align(decoder_hidden, encoder_outputs, align_method), dim=1) * gaussian_scores
+        context_vector = torch.bmm(attention_weights.unsqueeze(1), encoder_outputs).squeeze(1)
         return context_vector, attention_weights
     
-    
-    def align(self, decoder_hidden, encoder_outputs, method):
-        if method == "dot": 
-            return torch.bmm(decoder_hidden.unsqueeze(1), encoder_outputs.transpose(1, 2)).squeeze(1)
-        elif method == "general":
-            return torch.bmm(decoder_hidden.unsqueeze(1), self.Wa(encoder_outputs).transpose(1, 2)).squeeze(1)
-        elif method == "concat":
-            decoder_hidden_expanded = self.Wa(decoder_hidden).unsqueeze(1).expand(-1, encoder_outputs.size(1), -1)
-            concat_input = torch.cat([decoder_hidden_expanded, encoder_outputs], dim=-1)
-            return self.Va(torch.tanh(concat_input)).squeeze(2)
-        else:
-            raise ValueError("Invalid attention method. Choose 'dot', 'general', or 'concat'.")
-        
-        
+
         

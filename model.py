@@ -14,10 +14,10 @@ INPUT_DIM = en_tokenizer.get_vocab_size()
 OUTPUT_DIM = vi_tokenizer.get_vocab_size()
 
 class Encoder(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, num_layers, dropout, bidirectional):
+    def __init__(self, input_dim, hidden_dim, embedding_dim, output_dim, num_layers, dropout, bidirectional):
         super(Encoder, self).__init__()
-        self.embedding = nn.Embedding(input_dim, hidden_dim)
-        self.lstm = nn.LSTM(hidden_dim, hidden_dim, num_layers=num_layers, bidirectional=bidirectional, batch_first=True)
+        self.embedding = nn.Embedding(input_dim, embedding_dim)
+        self.lstm = nn.LSTM(embedding_dim, hidden_dim, num_layers=num_layers, bidirectional=bidirectional, batch_first=True)
         self.fc = nn.Linear(hidden_dim * 2 if bidirectional else hidden_dim, hidden_dim)
         self.fc_hidden = nn.Linear(hidden_dim * 2 if bidirectional else hidden_dim, hidden_dim)
         self.layer_norm = nn.LayerNorm(hidden_dim * 2 if bidirectional else hidden_dim)
@@ -42,10 +42,10 @@ class Encoder(nn.Module):
 
     
 class Decoder(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, num_layers, dropout, bidirectional, attention_type):
+    def __init__(self, input_dim, hidden_dim, embedding_dim, output_dim, num_layers, dropout, bidirectional, attention_type):
         super(Decoder, self).__init__()
-        self.embedding = nn.Embedding(input_dim, hidden_dim)
-        self.lstm = nn.LSTM(hidden_dim*2, hidden_dim, num_layers=num_layers, dropout=dropout, bidirectional=bidirectional, batch_first=True)
+        self.embedding = nn.Embedding(input_dim, embedding_dim)
+        self.lstm = nn.LSTM(embedding_dim, hidden_dim, num_layers=num_layers, bidirectional=bidirectional, batch_first=True)
 
         if attention_type == 'global':
             self.attention = GlobalAttention(hidden_dim)
@@ -58,29 +58,34 @@ class Decoder(nn.Module):
         self.fc_out = nn.Linear(hidden_dim, output_dim)
         self.layer_norm = nn.LayerNorm(hidden_dim * 2 if bidirectional else hidden_dim)
         self.dropout = nn.Dropout(dropout)
-        self.fc = nn.Linear(hidden_dim * 2 if bidirectional else hidden_dim, hidden_dim)
+        self.fc = nn.Linear(hidden_dim * 4 if bidirectional else hidden_dim*2, hidden_dim)
         
-    def forward(self, input, encoder_outputs, hidden):
+    def forward(self, input, encoder_outputs, hidden, align_method, method, timestep):
         # input.shape: (BATCH_SIZE, 1), encoder_outputs.shape: (BATCH_SIZE, MAX_LENGTH, HIDDEN_DIM), hidden.shape: (BATCH_SIZE, HIDDEN_DIM)
         # input = input.to(DEVICE)
         embedded = self.dropout(self.embedding(input))
-        context, attn_weights = self.attention(hidden, encoder_outputs)
         
         # cell = torch.zeros_like(hidden).to(DEVICE)
-        cell = torch.zeros_like(hidden)
-                        
-        outputs, (hidden, _) = self.lstm(embedded, (hidden, cell))
+        hidden = hidden.repeat(self.lstm.num_layers * 2 if self.lstm.bidirectional else 1, 1, 1)
         
+        cell = torch.zeros_like(hidden)
+        outputs, (hidden, _) = self.lstm(embedded, (hidden, cell)) # [batch_size, seq_length, hidden_size]
+        print("after lstm, outputs shape, hidden shape:", outputs.shape, hidden.shape)
         outputs = self.layer_norm(outputs)
         
         if self.lstm.bidirectional:
             hidden = torch.cat((hidden[-2, :, :], hidden[-1, :, :]), dim=1)
-
-        context, attn_weights = self.attention(hidden, encoder_outputs)  # [batch_size, hidden_dim], [batch_size, seq_len]
-                
-        outputs = torch.cat([outputs, context], dim=1) 
-    
-        hidden = self.fc_hidden(hidden)
+        else:
+            hidden = hidden[-1, :, :]
+        context_vector, attn_weights = self.attention(encoder_outputs=encoder_outputs, 
+                                               decoder_hidden=hidden, 
+                                               align_method=align_method, 
+                                               method=method,
+                                               timestep=timestep)  # [batch_size, hidden_dim], [batch_size, seq_len]
+        
+        outputs = torch.cat((outputs, context_vector.unsqueeze(1).repeat(1, outputs.size(1), 1)), dim=-1)
+        print(outputs.shape)
+        hidden = self.fc_hidden(hidden).squeeze(0)
         outputs = self.fc(outputs)
         outputs = self.dropout(outputs)
         
