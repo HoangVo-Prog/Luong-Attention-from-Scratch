@@ -25,7 +25,7 @@ class Encoder(nn.Module):
         
     def forward(self, x):
        
-        # x = x.to(DEVICE)
+        x = x.to(DEVICE)
         embedded = self.dropout(self.embedding(x))
         outputs, (hidden, _) = self.lstm(embedded)
         
@@ -62,10 +62,12 @@ class Decoder(nn.Module):
         
     def forward(self, input, encoder_outputs, hidden, align_method, method, timestep):
         # input.shape: (BATCH_SIZE, 1), encoder_outputs.shape: (BATCH_SIZE, MAX_LENGTH, HIDDEN_DIM), hidden.shape: (BATCH_SIZE, HIDDEN_DIM)
-        # input = input.to(DEVICE)
+        input = input.to(DEVICE)
         embedded = self.dropout(self.embedding(input))
         
-        # cell = torch.zeros_like(hidden).to(DEVICE)
+        cell = torch.zeros_like(hidden).to(DEVICE)
+        # cell = torch.zeros_like(hidden)
+
         hidden = hidden.repeat(self.lstm.num_layers * 2 if self.lstm.bidirectional else 1, 1, 1)
         
         cell = torch.zeros_like(hidden)
@@ -102,8 +104,8 @@ class Seq2Seq(nn.Module):
     def forward(self, src, trg, teacher_forcing_ratio, align_method, method):
         batch_size = src.shape[0]
         trg_len = trg.shape[1]
-        # outputs = torch.zeros(batch_size, trg_len, OUTPUT_DIM).to(DEVICE)
-        outputs = torch.zeros(batch_size, trg_len, OUTPUT_DIM)
+        outputs = torch.zeros(batch_size, trg_len, OUTPUT_DIM).to(DEVICE)
+        # outputs = torch.zeros(batch_size, trg_len, OUTPUT_DIM)
 
         encoder_outputs, hidden = self.encoder(src)
 
@@ -122,8 +124,8 @@ class Seq2Seq(nn.Module):
 
             outputs[:, t, :] = output
             
-            # teacher_force = torch.rand(1, device=DEVICE).item() < teacher_forcing_ratio
-            teacher_force = torch.rand(1).item() < teacher_forcing_ratio
+            teacher_force = torch.rand(1, device=DEVICE).item() < teacher_forcing_ratio
+            # teacher_force = torch.rand(1).item() < teacher_forcing_ratio
 
             top1 = output.argmax(1)
             input = trg[:, t] if teacher_force else top1
