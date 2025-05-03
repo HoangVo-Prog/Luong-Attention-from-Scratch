@@ -22,6 +22,7 @@ def parse_args():
     
     return parser.parse_args()
 
+
 def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)

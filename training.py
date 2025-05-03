@@ -52,6 +52,7 @@ def compute_bleu(predictions, targets):
     # and the predictions should be a list of token IDs too.
     return corpus_bleu([[target] for target in targets], predictions, smoothing_function=smoothing_function)
 
+
 def train_fn(model, train_loader, optimizer, criterion, clip, teacher_forcing_ratio, device, method, align_method):
     model.train()  # Set model to training mode
     epoch_train_loss = 0
@@ -82,6 +83,7 @@ def train_fn(model, train_loader, optimizer, criterion, clip, teacher_forcing_ra
     avg_train_loss = epoch_train_loss / len(train_loader)
     print(f"Training Loss: {avg_train_loss:.4f}")
     return avg_train_loss
+
 
 def evaluate_fn(model, val_loader, criterion, device, method, align_method):
     model.eval()  # Set model to evaluation mode
@@ -117,6 +119,7 @@ def evaluate_fn(model, val_loader, criterion, device, method, align_method):
     print(f"Validation BLEU Score: {val_bleu_score:.4f}")
     
     return avg_val_loss, val_bleu_score
+
 
 def train_and_evaluate(model, train_loader, val_loader, optimizer, criterion, scheduler,
                        n_epochs, teacher_forcing_ratio, device,
